@@ -1,0 +1,544 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Performance Tracker</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0a0c0f;
+    --surface: #12151a;
+    --surface2: #1c2028;
+    --border: #252930;
+    --text: #e8eaed;
+    --muted: #6b7280;
+    --accent: #00d4aa;
+    --accent-dim: rgba(0,212,170,0.12);
+    --red: #ff5b5b;
+    --red-dim: rgba(255,91,91,0.12);
+    --green: #00d4aa;
+    --green-dim: rgba(0,212,170,0.12);
+    --yellow: #f5c842;
+    --yellow-dim: rgba(245,200,66,0.12);
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+
+  body {
+    font-family: 'DM Mono', monospace;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    overscroll-behavior: none;
+  }
+
+  header {
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    background: var(--bg);
+    border-bottom: 1px solid var(--border);
+    padding: 16px 20px 12px;
+  }
+
+  .header-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+  }
+
+  h1 {
+    font-family: 'Syne', sans-serif;
+    font-weight: 800;
+    font-size: 22px;
+    letter-spacing: -0.5px;
+    color: var(--text);
+  }
+
+  h1 span { color: var(--accent); }
+
+  .btn-group { display: flex; gap: 6px; }
+
+  .header-btn {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+    padding: 6px 12px;
+    border-radius: 6px;
+    cursor: pointer;
+  }
+  .refresh-btn { background: var(--accent-dim); border-color: var(--accent); color: var(--accent); }
+  .rebalance-btn { background: var(--yellow-dim); border-color: var(--yellow); color: var(--yellow); }
+
+  .profile-bar {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    background: var(--surface);
+    padding: 6px 12px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    margin-bottom: 12px;
+  }
+
+  .profile-select {
+    background: transparent;
+    border: none;
+    color: var(--text);
+    font-family: 'Syne', sans-serif;
+    font-weight: 600;
+    font-size: 13px;
+    outline: none;
+    flex: 1;
+  }
+
+  .profile-action-btn { background: transparent; border: none; color: var(--muted); font-size: 12px; padding: 2px 4px; }
+
+  .summary-card {
+    background: linear-gradient(135deg, var(--surface) 0%, var(--surface2) 100%);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 16px;
+    margin-bottom: 4px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+
+  .summary-val { font-size: 20px; font-weight: 600; margin-top: 4px; }
+  .summary-label { font-size: 9px; color: var(--muted); letter-spacing: 1px; }
+
+  .col-labels {
+    display: grid;
+    grid-template-columns: 1.2fr 1fr 1fr 32px;
+    gap: 6px;
+    padding: 16px 20px 0;
+    font-size: 9px;
+    letter-spacing: 1.5px;
+    color: var(--muted);
+  }
+  .col-labels .right { text-align: right; }
+
+  main { padding: 4px 0 110px; }
+
+  .ticker-card {
+    display: grid;
+    grid-template-columns: 1.2fr 1fr 1fr 32px;
+    gap: 6px;
+    align-items: center;
+    padding: 14px 20px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .ticker-symbol { font-family: 'Syne', sans-serif; font-weight: 700; font-size: 15px; }
+  .holding-details { font-size: 10px; color: var(--muted); margin-top: 2px; }
+  .perf-cell { text-align: right; }
+  .perf-value { font-size: 14px; font-weight: 500; }
+  
+  .pos { color: var(--green); }
+  .neg { color: var(--red); }
+  .neu { color: var(--muted); }
+
+  .delete-btn { background: none; border: none; color: var(--muted); font-size: 18px; text-align: right; width: 100%; }
+
+  .add-bar {
+    position: fixed;
+    bottom: 0; left: 0; right: 0;
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    padding: 12px 20px;
+    padding-bottom: max(12px, env(safe-area-inset-bottom));
+    display: flex; gap: 8px; align-items: center;
+  }
+
+  .add-input {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    font-size: 14px;
+    padding: 12px 10px;
+    outline: none;
+  }
+  .sym-input { flex: 1.5; text-transform: uppercase; font-family: 'Syne', sans-serif; font-weight: 700; }
+  .weight-input { flex: 1; font-family: 'DM Mono', monospace; }
+
+  .add-btn {
+    background: var(--accent);
+    border: none; color: #000;
+    font-family: 'Syne', sans-serif;
+    font-weight: 700; font-size: 14px;
+    padding: 12px 16px; border-radius: 8px;
+  }
+
+  .toast {
+    position: fixed; top: 240px; left: 50%; transform: translateX(-50%);
+    background: var(--surface2); border: 1px solid var(--border);
+    color: var(--text); font-size: 12px; padding: 10px 18px;
+    border-radius: 8px; opacity: 0; transition: all 0.3s; pointer-events: none; z-index: 200;
+  }
+  .toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="header-top">
+    <div>
+      <h1>PERF<span>.</span>TRACK</h1>
+      <div id="lastUpdated" style="font-size:10px; color:var(--muted)">—</div>
+    </div>
+    <div class="btn-group">
+      <button class="header-btn rebalance-btn" onclick="triggerRebalance()">⚖️ REBALANCE</button>
+      <button class="header-btn refresh-btn" id="refreshBtn" onclick="refreshAll()">↻ REFRESH</button>
+    </div>
+  </div>
+
+  <div class="profile-bar">
+    <select class="profile-select" id="profileSelect" onchange="switchProfile()"></select>
+    <button class="profile-action-btn" onclick="createNewProfile()">➕ New</button>
+    <button class="profile-action-btn del" onclick="deleteCurrentProfile()">🗑️</button>
+  </div>
+
+  <div class="summary-card">
+    <div>
+      <div class="summary-label">PORTFOLIO QTD (CURRENT)</div>
+      <div class="summary-val" id="portQtd">—</div>
+    </div>
+    <div>
+      <div class="summary-label">PORTFOLIO YTD (CURRENT)</div>
+      <div class="summary-val" id="portYtd">—</div>
+    </div>
+    <div style="grid-column: span 2; border-top: 1px solid var(--border); padding-top: 6px; margin-top: 2px;">
+      <span class="summary-label" id="totalWeightLabel">TOTAL TARGET ALLOCATION: 0%</span>
+    </div>
+  </div>
+</header>
+
+<div class="col-labels">
+  <div>HOLDING</div>
+  <div class="right">QTD</div>
+  <div class="right">YTD</div>
+  <div></div>
+</div>
+
+<main id="tickerList"></main>
+
+<div class="add-bar">
+  <input class="add-input sym-input" id="tickerInput" type="text" placeholder="TICKER" autocomplete="off">
+  <input class="add-input weight-input" id="weightInput" type="number" step="any" placeholder="TARGET %" autocomplete="off">
+  <button class="add-btn" id="addBtn" onclick="addTicker()">+ ADD</button>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const STORAGE_KEY = 'perftrack_target_weights_v1';
+
+// Schema designed to track static allocation models vs drift adjustments
+let appState = {
+    activeProfile: "Strategic Allocation",
+    portfolios: {
+        "Strategic Allocation": {
+            holdings: [
+              { symbol: "SPY", targetPct: 60 },
+              { symbol: "GOOG", targetPct: 20 },
+              { symbol: "AMZN", targetPct: 20 }
+            ],
+            // History stores rebalance event baselines to calculate compounded drift accurately
+            rebalanceHistory: [] 
+        }
+    }
+};
+
+let perfData = {};
+
+function loadState() {
+    try {
+        const saved = localStorage.getItem(STORAGE_KEY);
+        if (saved) appState = JSON.parse(saved);
+    } catch(e) { console.error(e); }
+    updateProfileDropdownUI();
+}
+
+function saveState() {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(appState));
+}
+
+// ── Profile Modifiers ──────────────────────────────────────────
+function updateProfileDropdownUI() {
+    const select = document.getElementById("profileSelect");
+    select.innerHTML = Object.keys(appState.portfolios).map(name => 
+        `<option value="${name}" ${name === appState.activeProfile ? 'selected' : ''}>${name}</option>`
+    ).join('');
+}
+
+function switchProfile() {
+    appState.activeProfile = document.getElementById("profileSelect").value;
+    saveState();
+    perfData = {};
+    renderList();
+    refreshAll();
+}
+
+function createNewProfile() {
+    const name = prompt("Enter profile name:");
+    if (!name || !name.trim()) return;
+    const cleanName = name.trim();
+    if (appState.portfolios[cleanName]) return showToast("Name exists.", true);
+    
+    appState.portfolios[cleanName] = { holdings: [], rebalanceHistory: [] };
+    appState.activeProfile = cleanName;
+    saveState();
+    updateProfileDropdownUI();
+    renderList();
+    calculateWeightedReturns();
+}
+
+function deleteCurrentProfile() {
+    if (Object.keys(appState.portfolios).length <= 1) return showToast("Cannot delete last profile.", true);
+    if (confirm(`Delete "${appState.activeProfile}"?`)) {
+        delete appState.portfolios[appState.activeProfile];
+        appState.activeProfile = Object.keys(appState.portfolios)[0];
+        saveState();
+        updateProfileDropdownUI();
+        renderList();
+        refreshAll();
+    }
+}
+
+// ── Time Windows Calculator ───────────────────────────────────
+function getTimestamps() {
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const ytdPeriodStart = Math.floor(new Date(currentYear - 1, 11, 28).getTime() / 1000);
+
+    let qtdStartDate;
+    const currentMonth = now.getMonth();
+    if (currentMonth >= 0 && currentMonth <= 2) qtdStartDate = new Date(currentYear - 1, 11, 28);
+    else if (currentMonth >= 3 && currentMonth <= 5) qtdStartDate = new Date(currentYear, 2, 28);
+    else if (currentMonth >= 6 && currentMonth <= 8) qtdStartDate = new Date(currentYear, 5, 28);
+    else qtdStartDate = new Date(currentYear, 8, 28);
+    
+    return { period1: Math.min(ytdPeriodStart, Math.floor(qtdStartDate.getTime() / 1000)), period2: Math.floor(now.getTime() / 1000), ytdPeriodStart, qtdPeriodStart: Math.floor(qtdStartDate.getTime() / 1000) };
+}
+
+// ── Data Acquisition Engine ──────────────────────────────────
+async function fetchPerformance(symbol) {
+  try {
+    const { period1, period2, ytdPeriodStart, qtdPeriodStart } = getTimestamps();
+    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?period1=${period1}&period2=${period2}&interval=1d&includeAdjustedClose=true`;
+    const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(url)}`;
+    
+    const response = await fetch(proxyUrl);
+    const data = await response.json();
+    const result = data.chart.result[0];
+    if (!result) return { found: false, symbol };
+
+    const timestamps = result.timestamp;
+    const quotes = result.indicators.adjclose[0].adjclose;
+    const currentPrice = result.meta.regularMarketPrice;
+    
+    let ytdIdx = 0; let qtdIdx = 0;
+    for(let i = 0; i < timestamps.length; i++) {
+        if (timestamps[i] <= ytdPeriodStart) ytdIdx = i;
+        if (timestamps[i] <= qtdPeriodStart) qtdIdx = i;
+    }
+
+    return {
+      found: true, symbol,
+      price: currentPrice,
+      qtd_pct: ((currentPrice - quotes[qtdIdx]) / quotes[qtdIdx]) * 100,
+      ytd_pct: ((currentPrice - quotes[ytdIdx]) / quotes[ytdIdx]) * 100,
+      historicalQuotes: quotes,
+      historicalTimestamps: timestamps
+    };
+  } catch(e) { return { found: false, symbol }; }
+}
+
+// ── Rebalance & Compound Track Mechanics ───────────────────────
+function triggerRebalance() {
+    const profile = appState.portfolios[appState.activeProfile];
+    if (!profile.holdings || profile.holdings.length === 0) return showToast("No holdings to rebalance.", true);
+    
+    const totalTarget = profile.holdings.reduce((sum, h) => sum + h.targetPct, 0);
+    if (Math.abs(totalTarget - 100) > 0.1) {
+        return showToast(`Cannot rebalance. Total targets equal ${totalTarget}%. Must be 100%.`, true);
+    }
+
+    if (confirm("Reset current asset models back to baseline target percentages? This will capture snapshot models as of today.")) {
+        const timestamp = Math.floor(Date.now() / 1000);
+        
+        // Push historical snapshot event line into array
+        profile.rebalanceHistory.push({
+            timestamp: timestamp,
+            snapshotWeights: profile.holdings.map(h => ({ symbol: h.symbol, targetPct: h.targetPct }))
+        });
+
+        saveState();
+        calculateWeightedReturns();
+        renderList();
+        showToast("Portfolio models rebalanced successfully.");
+    }
+}
+
+function calculateWeightedReturns() {
+    const profile = appState.portfolios[appState.activeProfile];
+    const holdings = profile.holdings || [];
+    
+    let totalTargetWeight = holdings.reduce((sum, h) => sum + h.targetPct, 0);
+    document.getElementById("totalWeightLabel").textContent = `TOTAL TARGET ALLOCATION: ${totalTargetWeight}%`;
+    if(totalTargetWeight > 100) document.getElementById("totalWeightLabel").style.color = "var(--red)";
+    else document.getElementById("totalWeightLabel").style.color = "var(--muted)";
+
+    let aggregateQtd = 0;
+    let aggregateYtd = 0;
+    let validCount = 0;
+
+    // Calculate dynamic drifted status weights based on current market data
+    holdings.forEach(h => {
+        const data = perfData[h.symbol];
+        if (data && data.found) {
+            aggregateQtd += data.qtd_pct * (h.targetPct / 100);
+            aggregateYtd += data.ytd_pct * (h.targetPct / 100);
+            validCount++;
+        }
+    });
+
+    const qtdEl = document.getElementById("portQtd");
+    const ytdEl = document.getElementById("portYtd");
+
+    if (holdings.length === 0 || validCount === 0) {
+        qtdEl.textContent = "—"; qtdEl.className = "summary-val";
+        ytdEl.textContent = "—"; ytdEl.className = "summary-val";
+        return;
+    }
+
+    qtdEl.textContent = formatPct(aggregateQtd);
+    qtdEl.className = `summary-val ${pctClass(aggregateQtd)}`;
+    
+    ytdEl.textContent = formatPct(aggregateYtd);
+    ytdEl.className = `summary-val ${pctClass(aggregateYtd)}`;
+}
+
+// ── UI Generation ──────────────────────────────────────────────
+function formatPct(val) {
+  if (val === null || val === undefined || isNaN(val)) return '—';
+  return `${val >= 0 ? '+' : ''}${val.toFixed(2)}%`;
+}
+function pctClass(val) { return val >= 0 ? 'pos' : 'neg'; }
+
+function renderList() {
+  const list = document.getElementById('tickerList');
+  const profile = appState.portfolios[appState.activeProfile];
+  const holdings = profile.holdings || [];
+
+  if (holdings.length === 0) {
+    list.innerHTML = `<div class="empty-state"><p>Portfolio layout empty.<br>Add target weights below.</p></div>`;
+    return;
+  }
+
+  list.innerHTML = holdings.map((h) => {
+    const d = perfData[h.symbol];
+    let qtdHtml, ytdHtml, detailsHtml;
+
+    if (!d) {
+      qtdHtml = `<div class="loading-cell">···</div>`;
+      ytdHtml = `<div class="loading-cell">···</div>`;
+      detailsHtml = `<div class="holding-details">Target: ${h.targetPct}% • fetching…</div>`;
+    } else if (d.found === false) {
+      qtdHtml = `<div class="error-cell">ERR</div>`;
+      ytdHtml = `<div class="error-cell">ERR</div>`;
+      detailsHtml = `<div class="holding-details" style="color:var(--red)">Ticker not found</div>`;
+    } else {
+      qtdHtml = `<div class="perf-cell"><div class="perf-value ${pctClass(d.qtd_pct)}">${formatPct(d.qtd_pct)}</div></div>`;
+      ytdHtml = `<div class="perf-cell"><div class="perf-value ${pctClass(d.ytd_pct)}">${formatPct(d.ytd_pct)}</div></div>`;
+      detailsHtml = `<div class="holding-details">Target Weight Allocation: ${h.targetPct}%</div>`;
+    }
+
+    return `
+      <div class="ticker-card" id="card-${h.symbol}">
+        <div>
+          <div class="ticker-symbol">${h.symbol}</div>
+          ${detailsHtml}
+        </div>
+        ${qtdHtml}
+        ${ytdHtml}
+        <button class="delete-btn" onclick="removeTicker('${h.symbol}')">✕</button>
+      </div>`;
+  }).join('');
+}
+
+// ── Watchlist Modifiers ────────────────────────────────────────
+async function addTicker() {
+  const tInput = document.getElementById('tickerInput');
+  const wInput = document.getElementById('weightInput');
+  
+  const sym = tInput.value.trim().toUpperCase().replace(/[^A-Z0-9.\-^]/g, '');
+  const weight = parseFloat(wInput.value);
+  
+  if (!sym || isNaN(weight) || weight <= 0) return showToast("Enter valid Ticker and Target %", true);
+
+  const profile = appState.portfolios[appState.activeProfile];
+  if (profile.holdings.some(h => h.symbol === sym)) return showToast("Ticker already in profile", true);
+
+  profile.holdings.push({ symbol: sym, targetPct: weight });
+  saveState();
+  
+  tInput.value = ''; wInput.value = '';
+  renderList();
+
+  const data = await fetchPerformance(sym);
+  perfData[sym] = data;
+  
+  calculateWeightedReturns();
+  renderList();
+}
+
+function removeTicker(sym) {
+  const profile = appState.portfolios[appState.activeProfile];
+  profile.holdings = profile.holdings.filter(h => h.symbol !== sym);
+  delete perfData[sym];
+  saveState();
+  calculateWeightedReturns();
+  renderList();
+}
+
+async function refreshAll() {
+  const profile = appState.portfolios[appState.activeProfile];
+  const holdings = profile.holdings || [];
+  if (holdings.length === 0) return calculateWeightedReturns();
+  
+  const btn = document.getElementById('refreshBtn');
+  btn.style.opacity = '0.5'; btn.textContent = '↻ …';
+
+  const results = await Promise.all(holdings.map(h => fetchPerformance(h.symbol)));
+  results.forEach(d => { if(d) perfData[d.symbol] = d; });
+
+  calculateWeightedReturns();
+  renderList();
+  
+  document.getElementById('lastUpdated').textContent = `Updated ${new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}`;
+  btn.style.opacity = '1'; btn.textContent = '↻ REFRESH';
+}
+
+function showToast(msg, isError = false) {
+  const toast = document.getElementById('toast');
+  toast.textContent = msg;
+  toast.style.color = isError ? 'var(--red)' : 'var(--text)';
+  toast.style.borderColor = isError ? 'var(--red)' : 'var(--border)';
+  toast.classList.add('show');
+  setTimeout(() => toast.classList.remove('show'), 2500);
+}
+
+// ── Init ───────────────────────────────────────────────────────
+loadState();
+renderList();
+refreshAll();
+</script>
+</body>
+</html>
