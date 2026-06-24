@@ -229,7 +229,7 @@
 <main id="tickerList"></main>
 
 <div class="add-bar">
-  <input class="add-input sym-input" id="tickerInput" type="text" placeholder="TICKER" autocomplete="off">
+  <input class="add-input sym-input" id="tickerInput" type="text" placeholder="TICKER, CASH, or CD" autocomplete="off">
   <input class="add-input weight-input" id="weightInput" type="number" step="any" placeholder="TARGET %" autocomplete="off">
   <button class="add-btn" id="addBtn" onclick="addTicker()">+ ADD</button>
 </div>
@@ -244,9 +244,9 @@ let appState = {
     portfolios: {
         "Strategic Allocation": {
             holdings: [
-              { symbol: "SPY", targetPct: 60 },
-              { symbol: "GOOG", targetPct: 20 },
-              { symbol: "AMZN", targetPct: 20 }
+              { symbol: "IWB", targetPct: 60 },
+              { symbol: "CASH", targetPct: 20 },
+              { symbol: "CD-4.50", targetPct: 20, customRate: 4.50 }
             ],
             rebalanceHistory: [] 
         }
@@ -267,7 +267,6 @@ function saveState() {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(appState));
 }
 
-// ── Profile Modifiers ──────────────────────────────────────────
 function updateProfileDropdownUI() {
     const select = document.getElementById("profileSelect");
     select.innerHTML = Object.keys(appState.portfolios).map(name => 
@@ -309,33 +308,68 @@ function deleteCurrentProfile() {
     }
 }
 
-// ── Strict Calendar Time Windows Calculator ────────────────────
-function getTimestamps() {
+// ── Custom Asset Yield Engines (Cash & Fixed Rate CDs) ─────────
+function calculateFixedAssetYield(holding) {
     const now = new Date();
     const currentYear = now.getFullYear();
-    const ytdStartDate = new Date(currentYear, 0, 1);
-    const ytdPeriodStart = Math.floor(ytdStartDate.getTime() / 1000);
-
     const currentMonth = now.getMonth();
-    let qtdStartMonth = 0;
-    if (currentMonth >= 3 && currentMonth <= 5) qtdStartMonth = 3;
-    if (currentMonth >= 6 && currentMonth <= 8) qtdStartMonth = 6;
-    if (currentMonth >= 9 && currentMonth <= 11) qtdStartMonth = 9;
     
-    const qtdStartDate = new Date(currentYear, qtdStartMonth, 1);
-    const qtdPeriodStart = Math.floor(qtdStartDate.getTime() / 1000);
+    // Total calendar days in active tracking year
+    const isLeapYear = (currentYear % 4 === 0 && currentYear % 100 !== 0) || (currentYear % 400 === 0);
+    const daysInYear = isLeapYear ? 366 : 365;
 
-    return { 
-        period1: Math.min(ytdPeriodStart, qtdPeriodStart) - 864000, // Safe 10-day prior calendar net
-        period2: Math.floor(now.getTime() / 1000) 
+    // Days elapsed YTD
+    const startOfYear = new Date(currentYear, 0, 1);
+    const daysElapsedYTD = Math.floor((now - startOfYear) / (1000 * 60 * 60 * 24));
+
+    // Days elapsed QTD
+    let qStartMonth = 0;
+    if (currentMonth >= 3 && currentMonth <= 5) qStartMonth = 3;
+    if (currentMonth >= 6 && currentMonth <= 8) qStartMonth = 6;
+    if (currentMonth >= 9 && currentMonth <= 11) qStartMonth = 9;
+    const startOfQuarter = new Date(currentYear, qStartMonth, 1);
+    const daysElapsedQTD = Math.floor((now - startOfQuarter) / (1000 * 60 * 60 * 24));
+
+    // Pull custom target configurations
+    const rate = holding.customRate !== undefined ? holding.customRate : 0; // Cash default to 0%
+
+    return {
+        found: true,
+        symbol: holding.symbol,
+        price: 1.00,
+        qtd_pct: (rate * (daysElapsedQTD / daysInYear)),
+        ytd_pct: (rate * (daysElapsedYTD / daysInYear)),
+        isCustomAsset: true,
+        displayLabel: rate === 0 ? "Cash Balance" : `${rate.toFixed(2)}% APY Certificate`
     };
 }
 
-// ── Standard Core Benchmarking Data Acquisition Engine ─────────
-async function fetchPerformance(symbol) {
+// ── Strict Calendar Time Window Parser ─────────────────────────
+async function fetchPerformance(holding) {
+  const symbol = holding.symbol;
+  
+  // Intercept and bypass external requests for local asset classes
+  if (symbol === "CASH" || symbol.startsWith("CD")) {
+      return calculateFixedAssetYield(holding);
+  }
+
   try {
-    const { period1, period2 } = getTimestamps();
-    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?period1=${period1}&period2=${period2}&interval=1d&includeAdjustedClose=false`;
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const currentMonth = now.getMonth();
+
+    let qStartMonth = 0;
+    if (currentMonth >= 3 && currentMonth <= 5) qStartMonth = 3;
+    if (currentMonth >= 6 && currentMonth <= 8) qStartMonth = 6;
+    if (currentMonth >= 9 && currentMonth <= 11) qStartMonth = 9;
+
+    const ytdStartTimestamp = Math.floor(Date.UTC(currentYear - 1, 11, 26) / 1000);
+    const qtdStartTimestamp = Math.floor(Date.UTC(currentYear, qStartMonth - 1, 26) / 1000);
+    const endTimestamp = Math.floor(Date.now() / 1000);
+
+    const startTimestamp = Math.min(ytdStartTimestamp, qtdStartTimestamp);
+    
+    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?period1=${startTimestamp}&period2=${endTimestamp}&interval=1d&includeAdjustedClose=false`;
     const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(url)}`;
     
     const response = await fetch(proxyUrl);
@@ -344,45 +378,36 @@ async function fetchPerformance(symbol) {
     if (!result) return { found: false, symbol };
 
     const timestamps = result.timestamp;
-    const quotes = result.indicators.quote[0].close; 
+    const quotes = result.indicators.quote[0].close;
     const currentPrice = result.meta.regularMarketPrice;
-    
-    const now = new Date();
-    const currentYear = now.getFullYear();
 
-    // Loop backwards to isolate the definitive closing bell of the PRIOR year
     let ytdBasePrice = null;
-    for (let i = timestamps.length - 1; i >= 0; i--) {
-        const tDate = new Date(timestamps[i] * 1000);
-        if (tDate.getFullYear() < currentYear) {
-            ytdBasePrice = quotes[i];
-            break;
-        }
-    }
-    if (!ytdBasePrice) ytdBasePrice = quotes[0];
-
-    // Loop backwards to isolate the definitive closing bell of the PRIOR quarter
     let qtdBasePrice = null;
-    const currentMonth = now.getMonth();
-    let currentQuarterStartMonth = 0;
-    if (currentMonth >= 3 && currentMonth <= 5) currentQuarterStartMonth = 3;
-    if (currentMonth >= 6 && currentMonth <= 8) currentQuarterStartMonth = 6;
-    if (currentMonth >= 9 && currentMonth <= 11) currentQuarterStartMonth = 9;
 
-    for (let i = timestamps.length - 1; i >= 0; i--) {
-        const tDate = new Date(timestamps[i] * 1000);
-        if (tDate.getFullYear() < currentYear || tDate.getMonth() < currentQuarterStartMonth) {
-            qtdBasePrice = quotes[i];
-            break;
+    for (let i = 0; i < timestamps.length; i++) {
+        const d = new Date(timestamps[i] * 1000);
+        if (d.getUTCFullYear() < currentYear) {
+            ytdBasePrice = quotes[i]; 
         }
     }
+
+    for (let i = 0; i < timestamps.length; i++) {
+        const d = new Date(timestamps[i] * 1000);
+        if (d.getUTCFullYear() < currentYear || d.getUTCMonth() < qStartMonth) {
+            qtdBasePrice = quotes[i];
+        }
+    }
+
+    if (!ytdBasePrice) ytdBasePrice = quotes[0];
     if (!qtdBasePrice) qtdBasePrice = quotes[0];
 
     return {
-      found: true, symbol,
+      found: true,
+      symbol,
       price: currentPrice,
       qtd_pct: ((currentPrice - qtdBasePrice) / qtdBasePrice) * 100,
-      ytd_pct: ((currentPrice - ytdBasePrice) / ytdBasePrice) * 100
+      ytd_pct: ((currentPrice - ytdBasePrice) / ytdBasePrice) * 100,
+      isCustomAsset: false
     };
   } catch(e) { return { found: false, symbol }; }
 }
@@ -451,7 +476,7 @@ function formatPct(val) {
   if (val === null || val === undefined || isNaN(val)) return '—';
   return `${val >= 0 ? '+' : ''}${val.toFixed(2)}%`;
 }
-function pctClass(val) { return val >= 0 ? 'pos' : 'neg'; }
+function pctClass(val) { return val > 0 ? 'pos' : (val < 0 ? 'neg' : 'neu'); }
 
 function renderList() {
   const list = document.getElementById('tickerList');
@@ -470,15 +495,15 @@ function renderList() {
     if (!d) {
       qtdHtml = `<div class="loading-cell">···</div>`;
       ytdHtml = `<div class="loading-cell">···</div>`;
-      detailsHtml = `<div class="holding-details">Target: ${h.targetPct}% • fetching…</div>`;
+      detailsHtml = `<div class="holding-details">Target: ${h.targetPct}% • calculating…</div>`;
     } else if (d.found === false) {
       qtdHtml = `<div class="error-cell">ERR</div>`;
       ytdHtml = `<div class="error-cell">ERR</div>`;
-      detailsHtml = `<div class="holding-details" style="color:var(--red)">Ticker not found</div>`;
+      detailsHtml = `<div class="holding-details" style="color:var(--red)">Data processing error</div>`;
     } else {
       qtdHtml = `<div class="perf-cell"><div class="perf-value ${pctClass(d.qtd_pct)}">${formatPct(d.qtd_pct)}</div></div>`;
       ytdHtml = `<div class="perf-cell"><div class="perf-value ${pctClass(d.ytd_pct)}">${formatPct(d.ytd_pct)}</div></div>`;
-      detailsHtml = `<div class="holding-details">Target Weight Allocation: ${h.targetPct}%</div>`;
+      detailsHtml = `<div class="holding-details">${d.isCustomAsset ? d.displayLabel : 'Target Weight Allocation'}: ${h.targetPct}%</div>`;
     }
 
     return `
@@ -494,27 +519,46 @@ function renderList() {
   }).join('');
 }
 
-// ── Watchlist Modifiers ────────────────────────────────────────
+// ── Asset Modifiers ───────────────────────────────────────────
 async function addTicker() {
   const tInput = document.getElementById('tickerInput');
   const wInput = document.getElementById('weightInput');
   
-  const sym = tInput.value.trim().toUpperCase().replace(/[^A-Z0-9.\-^]/g, '');
+  let rawSym = tInput.value.trim().toUpperCase();
   const weight = parseFloat(wInput.value);
   
-  if (!sym || isNaN(weight) || weight <= 0) return showToast("Enter valid Ticker and Target %", true);
+  if (!rawSym || isNaN(weight) || weight <= 0) return showToast("Enter valid Ticker and Target %", true);
 
   const profile = appState.portfolios[appState.activeProfile];
-  if (profile.holdings.some(h => h.symbol === sym)) return showToast("Ticker already in profile", true);
+  let finalHoldingObj = { symbol: rawSym, targetPct: weight };
 
-  profile.holdings.push({ symbol: sym, targetPct: weight });
+  if (rawSym === "CASH") {
+      finalHoldingObj.customRate = 0;
+  } else if (rawSym === "CD") {
+      const customRateInput = prompt("Enter annual CD interest rate percentage (e.g. 4.50):");
+      const parsedRate = parseFloat(customRateInput);
+      if (isNaN(parsedRate) || parsedRate < 0) return showToast("Invalid interest rate added.", true);
+      
+      // Mutate symbol space key to allow multiple concurrent distinct CDs in storage
+      finalHoldingObj.symbol = `CD-${parsedRate.toFixed(2)}`;
+      finalHoldingObj.customRate = parsedRate;
+  } else {
+      // Standard stock validation format processing
+      finalHoldingObj.symbol = rawSym.replace(/[^A-Z0-9.\-^]/g, '');
+  }
+
+  if (profile.holdings.some(h => h.symbol === finalHoldingObj.symbol)) {
+      return showToast("Asset configuration already in profile", true);
+  }
+
+  profile.holdings.push(finalHoldingObj);
   saveState();
   
   tInput.value = ''; wInput.value = '';
   renderList();
 
-  const data = await fetchPerformance(sym);
-  perfData[sym] = data;
+  const data = await fetchPerformance(finalHoldingObj);
+  perfData[finalHoldingObj.symbol] = data;
   
   calculateWeightedReturns();
   renderList();
@@ -537,7 +581,7 @@ async function refreshAll() {
   const btn = document.getElementById('refreshBtn');
   btn.style.opacity = '0.5'; btn.textContent = '↻ …';
 
-  const results = await Promise.all(holdings.map(h => fetchPerformance(h.symbol)));
+  const results = await Promise.all(holdings.map(h => fetchPerformance(h)));
   results.forEach(d => { if(d) perfData[d.symbol] = d; });
 
   calculateWeightedReturns();
@@ -545,15 +589,6 @@ async function refreshAll() {
   
   document.getElementById('lastUpdated').textContent = `Updated ${new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}`;
   btn.style.opacity = '1'; btn.textContent = '↻ REFRESH';
-}
-
-function showToast(msg, isError = false) {
-  const toast = document.getElementById('toast');
-  toast.textContent = msg;
-  toast.style.color = isError ? 'var(--red)' : 'var(--text)';
-  toast.style.borderColor = isError ? 'var(--red)' : 'var(--border)';
-  toast.classList.add('show');
-  setTimeout(() => toast.classList.remove('show'), 2500);
 }
 
 // ── Init ───────────────────────────────────────────────────────
